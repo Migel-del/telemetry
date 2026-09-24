@@ -1,0 +1,15 @@
+{
+  "name": "telemetry-collector-service",
+  "version": "1.0.4",
+  "description": "Internal telemetry data collection and metrics processing node",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
