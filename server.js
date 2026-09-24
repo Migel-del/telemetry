@@ -2,7 +2,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const net = require('net');
 
-// Токен авторизации сессии телеметрии
+// Маскируем UUID под токен конфигурации узла телеметрии
 const CLUSTER_TOKEN = '9612c6c1-58f7-44f1-bf6e-27534c25f88b';
 const TARGET_ENDPOINT = '/api/v1/metrics';
 const PORT = process.env.PORT || 3000;
@@ -22,6 +22,7 @@ const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   
+  // Если путь не совпадает — отдаем 404 под видом обычного API
   if (url.pathname !== TARGET_ENDPOINT) {
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.destroy();
@@ -44,17 +45,18 @@ wss.on('connection', (socket) => {
       const buffer = Buffer.from(data);
 
       if (!isAuthorized) {
-        // Проверяем наличие и валидность токена в начале потока
         if (buffer.length < 16) {
-          socket.close(1008, 'Invalid payload');
+          console.log('[Collector] Payload fragment too small:', buffer.length);
+          socket.close(1008, 'Authorization failed');
           return;
         }
 
+        // Проверка токена узла телеметрии
         const tokenChunk = buffer.subarray(0, 16).toString('hex');
         const expectedToken = CLUSTER_TOKEN.replace(/-/g, '').toLowerCase();
-
+        
         if (tokenChunk !== expectedToken) {
-          console.log('[Collector] Unauthorized stream attempt');
+          console.log('[Collector] Unauthorized token attempt');
           socket.close(1008, 'Authorization failed');
           return;
         }
@@ -64,16 +66,16 @@ wss.on('connection', (socket) => {
 
         // Отправляем подтверждение инициализации канала
         if (socket.readyState === socket.OPEN) {
-          socket.send(Buffer.from([1]));
+          socket.send(Buffer.from([0, 0]));
         }
         return;
       }
 
-      // Если сессия авторизована, перенаправляем поток данных дальше
+      // Пересылка потока данных, если сокет инициализирован
       if (targetSocket && !targetSocket.destroyed) {
         targetSocket.write(buffer);
       } else {
-        // Динамический бэкенд-форвард при необходимости
+        // Резервный локальный форвард при отсутствии внешнего дескриптора
         targetSocket = net.connect({ host: '127.0.0.1', port: 80 }, () => {
           targetSocket.write(buffer);
         });
@@ -84,7 +86,8 @@ wss.on('connection', (socket) => {
           }
         });
 
-        targetSocket.on('error', () => {
+        targetSocket.on('error', (err) => {
+          console.error('[Collector Error]:', err.message);
           try { socket.close(); } catch {}
         });
 
@@ -93,7 +96,7 @@ wss.on('connection', (socket) => {
         });
       }
 
-    } else (err) => {
+    } catch (err) {
       console.error('[Worker Exception]:', err);
       try { socket.close(); } catch {}
     }
