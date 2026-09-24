@@ -1,0 +1,6 @@
+{
+  "name": "telemetry-collector-service",
+  "build": {
+    "builder": "nixpacks"
+  }
+}
